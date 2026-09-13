@@ -8,9 +8,20 @@ use Illuminate\Support\Facades\Validator;
 
 class ServicioController extends Controller
 {
-    public function index()
+    /**
+     * Acepta un filtro opcional ?id_tipo_vehiculo=X para traer solo los
+     * servicios configurados para ese tipo de vehículo (usado en la vista
+     * de reservas, para que un cliente con un carro no vea servicios de moto).
+     */
+    public function index(Request $request)
     {
-        return response()->json(Servicio::with('tipoVehiculo')->get(), 200);
+        $query = Servicio::with('tipoVehiculo');
+
+        if ($request->filled('id_tipo_vehiculo')) {
+            $query->where('id_tipo_vehiculo', $request->id_tipo_vehiculo);
+        }
+
+        return response()->json($query->get(), 200);
     }
 
     public function show(int $id)

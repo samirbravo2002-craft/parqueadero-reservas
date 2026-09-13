@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Cliente;
+use App\Models\ComprobantePago;
+use App\Models\MetodoPago;
 use App\Models\Reserva;
+use App\Models\Servicio;
 use App\Models\TipoVehiculo;
 use App\Models\Vehiculo;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class ReservaController extends Controller
@@ -44,7 +49,7 @@ class ReservaController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'no_documento_cliente' => 'required|exists:cliente,no_documento_cliente',
-            '' => 'required|exists:vehiculo,placa_vehiculo',
+            'placa_vehiculo' => 'required|exists:vehiculo,placa_vehiculo',
             'fecha' => 'required|date',
             'hora' => 'required|string|max:10',
             'id_servicio' => 'required|exists:servicio,id_servicio',
@@ -157,7 +162,7 @@ class ReservaController extends Controller
     }
 
     /**
-     * Consulta cuántos cupos hay disponibles para un tipo de vehículo en una fecha dada.
+     * Consulta cuántos cupos hay disponibles para un tipo de vehículo en una fecha dada (API).
      */
     public function cuposDisponibles(Request $request)
     {
@@ -177,6 +182,127 @@ class ReservaController extends Controller
             'cupos_ocupados' => $disponibilidad['cupos_ocupados'],
             'cupos_disponibles' => $disponibilidad['cupos_totales'] - $disponibilidad['cupos_ocupados'],
         ], 200);
+    }
+
+    /**
+     * SITIO WEB — Paso 1 y 2 del formulario de reserva (sin JS).
+     * Muestra los vehículos del cliente en sesión. Si ya viene "placa_vehiculo"
+     * en la URL (el cliente ya eligió su vehículo), filtra los servicios por
+     * el tipo de ese vehículo y muestra el resto del formulario + métodos de pago.
+     */
+    public function crear(Request $request)
+    {
+        $clienteSesion = session('cliente');
+
+        if (!$clienteSesion) {
+            return redirect()->route('inicio')->with('status', 'Necesitas iniciar sesión para reservar.');
+        }
+
+        $cliente = Cliente::with('vehiculos.tipoVehiculo')->find($clienteSesion['no_documento_cliente']);
+        $vehiculos = $cliente ? $cliente->vehiculos : collect();
+
+        $vehiculoSeleccionado = null;
+        $servicios = collect();
+
+        if ($request->filled('placa_vehiculo')) {
+            $vehiculoSeleccionado = $vehiculos->firstWhere('placa_vehiculo', $request->placa_vehiculo);
+
+            if ($vehiculoSeleccionado) {
+                $servicios = Servicio::where('id_tipo_vehiculo', $vehiculoSeleccionado->id_tipo_vehiculo)
+                    ->where(function ($q) {
+                        $q->where('estado_servicio', 1)->orWhereNull('estado_servicio');
+                    })
+                    ->get();
+            }
+        }
+
+        $metodosPago = MetodoPago::where(function ($q) {
+            $q->where('estado_metodo_pago', 1)->orWhereNull('estado_metodo_pago');
+        })->get();
+
+        return view('reservas', [
+            'cliente' => $clienteSesion,
+            'vehiculos' => $vehiculos,
+            'vehiculoSeleccionado' => $vehiculoSeleccionado,
+            'servicios' => $servicios,
+            'metodosPago' => $metodosPago,
+        ]);
+    }
+
+    /**
+     * SITIO WEB — Procesa el formulario de reserva: crea la reserva y,
+     * en la misma transacción, el comprobante de pago con el método elegido.
+     */
+    public function guardar(Request $request)
+    {
+        $clienteSesion = session('cliente');
+
+        if (!$clienteSesion) {
+            return redirect()->route('inicio')->with('status', 'Necesitas iniciar sesión para reservar.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'placa_vehiculo' => 'required|exists:vehiculo,placa_vehiculo',
+            'id_servicio' => 'required|exists:servicio,id_servicio',
+            'fecha' => 'required|date',
+            'hora' => 'required|string|max:10',
+            'id_metodo_pago' => 'required|exists:metodo_pago,id_metodo_pago',
+        ]);
+
+        if ($validator->fails()) {
+            return back()->withErrors($validator)->withInput();
+        }
+
+        $vehiculo = Vehiculo::find($request->placa_vehiculo);
+
+        if (!$vehiculo || $vehiculo->no_documento_cliente != $clienteSesion['no_documento_cliente']) {
+            return back()
+                ->withErrors(['placa_vehiculo' => 'Ese vehículo no está registrado a tu nombre'])
+                ->withInput();
+        }
+
+        $disponibilidad = $this->verificarCupoDisponible($vehiculo->id_tipo_vehiculo, $request->fecha);
+
+        if (!$disponibilidad['disponible']) {
+            return back()
+                ->withErrors(['fecha' => 'No hay cupos disponibles para ese tipo de vehículo en esa fecha'])
+                ->withInput();
+        }
+
+        $reserva = DB::transaction(function () use ($request, $clienteSesion, $vehiculo) {
+            $reserva = Reserva::create([
+                'no_documento_cliente' => $clienteSesion['no_documento_cliente'],
+                'placa_vehiculo' => $request->placa_vehiculo,
+                'fecha' => $request->fecha,
+                'hora' => $request->hora,
+                'id_servicio' => $request->id_servicio,
+                'id_tipo_vehiculo' => $vehiculo->id_tipo_vehiculo,
+            ]);
+
+            ComprobantePago::create([
+                'id_reserva' => $reserva->id_reserva,
+                'id_metodo_pago' => $request->id_metodo_pago,
+            ]);
+
+            return $reserva;
+        });
+
+        return redirect()->route('reservas.voucher', $reserva->id_reserva);
+    }
+
+    /**
+     * SITIO WEB — Muestra el voucher de una reserva ya creada.
+     */
+    public function voucher(int $id)
+    {
+        $reserva = Reserva::with('cliente.usuario', 'vehiculo', 'servicio', 'tipoVehiculo', 'comprobantePago.metodoPago')
+            ->find($id);
+
+        if (!$reserva) {
+            abort(404);
+        }
+
+        return view('reserva-voucher', ['reserva' => $reserva]);
     }
 
     /**
