@@ -14,7 +14,7 @@ use App\Models\Vehiculo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Str;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
 
 class ReservaController extends Controller
@@ -29,9 +29,16 @@ class ReservaController extends Controller
      */
     private const CUPOS_POR_TIPO = [
         'carro' => 30,
-        'moto' => 25,
+        'moto' => 30,
         'bicicleta' => 20,
     ];
+
+    /**
+     * Documento del "cliente ocasional" genérico, reutilizado por
+     * crearControl() cuando no se indica un cliente real: solo sirve
+     * para poder marcar un cupo como ocupado. NUEVO.
+     */
+    private const DOCUMENTO_CLIENTE_GENERICO = 900000000;
 
     public function index()
     {
@@ -261,109 +268,156 @@ class ReservaController extends Controller
     }
 
     /**
-     * CONTROL — Crea una reserva desde el panel para un cliente que llega
-     * físicamente al parqueadero (con o sin cuenta previa). Si el documento
-     * no existe como cliente, se crea un usuario+cliente "ocasional" (sin
-     * login web real); si la placa no existe, se registra a nombre de ese cliente.
-     * NUEVO.
+     * CONTROL — Crea una reserva desde el panel, ya sea para un cliente real
+     * que llega al parqueadero (llenando documento/placa, con o sin cuenta
+     * previa) o, en el caso más simple, solo para marcar un cupo como
+     * ocupado sin capturar ningún dato del cliente ni del vehículo.
+     *
+     * ÚNICO campo obligatorio: id_tipo_vehiculo (para saber a qué cupo
+     * descuenta). Todo lo demás es opcional:
+     *   - Si no se manda no_documento_cliente, se usa un "cliente ocasional"
+     *     genérico reutilizable (ver clienteOcasionalGenerico()).
+     *   - Si no se manda placa_vehiculo, se usa un vehículo genérico por
+     *     tipo (ver vehiculoOcasionalGenerico()).
+     *   - Si no se manda id_servicio, se usa el primer servicio activo
+     *     configurado para ese tipo de vehículo.
+     *   - Si no se manda fecha/hora, se usa la fecha/hora actual.
+     *   - Si no se manda id_metodo_pago, simplemente no se crea comprobante
+     *     de pago (el pago se puede registrar después si hace falta).
+     * MODIFICADO: simplificado para no exigir tantos campos.
      */
     public function crearControl(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'no_documento_cliente' => 'required|integer|digits_between:6,10',
+            'no_documento_cliente' => 'nullable|integer|digits_between:6,10',
             'nombre_usuario' => 'nullable|string|max:20',
             'apellido_usuario' => 'nullable|string|max:20',
             'numero_celular' => 'nullable|digits:10',
 
-            'placa_vehiculo' => 'required|string|max:10',
+            'placa_vehiculo' => 'nullable|string|max:10',
             'id_tipo_vehiculo' => 'required|exists:tipo_vehiculo,id_tipo_vehiculo',
             'color_vehiculo' => 'nullable|string|max:11',
             'marca_vehiculo' => 'nullable|string|max:20',
             'modelo_vehiculo' => 'nullable|string|max:20',
 
-            'id_servicio' => 'required|exists:servicio,id_servicio',
-            'fecha' => 'required|date',
-            'hora' => 'required|string|max:10',
-            'id_metodo_pago' => 'required|exists:metodo_pago,id_metodo_pago',
-            'no_documento_administrador' => 'required|exists:administrador,no_documento_administrador',
+            'id_servicio' => 'nullable|exists:servicio,id_servicio',
+            'fecha' => 'nullable|date',
+            'hora' => 'nullable|string|max:10',
+            'id_metodo_pago' => 'nullable|exists:metodo_pago,id_metodo_pago',
+            'no_documento_administrador' => 'nullable|exists:administrador,no_documento_administrador',
         ]);
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
 
-        $placa = strtoupper(trim($request->placa_vehiculo));
+        $fecha = $request->fecha ?: now()->toDateString();
+        $hora = $request->hora ?: now()->format('H:i');
+        $placaEnviada = $request->filled('placa_vehiculo') ? strtoupper(trim($request->placa_vehiculo)) : null;
 
         try {
-            $reserva = DB::transaction(function () use ($request, $placa) {
+            $reserva = DB::transaction(function () use ($request, $placaEnviada, $fecha, $hora) {
 
-                // 1) Cliente: si no existe, se crea uno "ocasional".
-                $cliente = Cliente::find($request->no_documento_cliente);
+                // 1) Cliente: si se indicó documento, se busca o se crea (como
+                //    antes). Si no se indicó nada, se usa el cliente genérico.
+                if ($request->filled('no_documento_cliente')) {
+                    $cliente = Cliente::find($request->no_documento_cliente);
 
-                if (!$cliente) {
-                    if (!$request->nombre_usuario || !$request->apellido_usuario || !$request->numero_celular) {
-                        throw new \Exception('FALTAN_DATOS_CLIENTE');
+                    if (!$cliente) {
+                        if (!$request->nombre_usuario || !$request->apellido_usuario || !$request->numero_celular) {
+                            throw new \Exception('FALTAN_DATOS_CLIENTE');
+                        }
+
+                        $rolCliente = Rol::where('nombre_rol', 'Cliente')->first();
+
+                        $usuario = Usuario::create([
+                            'tipo_documento' => 'CC',
+                            'nombre_usuario' => $request->nombre_usuario,
+                            'apellido_usuario' => $request->apellido_usuario,
+                            'numero_celular' => $request->numero_celular,
+                            'correo_usuario' => 'walkin_' . $request->no_documento_cliente . '@parqueadero.local',
+                            'id_rol' => $rolCliente->id_rol,
+                            'contrasenia' => Hash::make(Str::random(16)),
+                            'estado_usuario' => 1,
+                        ]);
+
+                        $cliente = Cliente::create([
+                            'no_documento_cliente' => $request->no_documento_cliente,
+                            'id_usuario' => $usuario->id_usuario,
+                        ]);
+                    }
+                } else {
+                    $cliente = $this->clienteOcasionalGenerico();
+                }
+
+                // 2) Vehículo: si se indicó placa, se busca o se crea a nombre
+                //    de ese cliente (como antes). Si no, se usa un vehículo
+                //    genérico por tipo, solo para ocupar el cupo.
+                if ($placaEnviada) {
+                    $vehiculo = Vehiculo::find($placaEnviada);
+
+                    if (!$vehiculo) {
+                        $vehiculo = Vehiculo::create([
+                            'placa_vehiculo' => $placaEnviada,
+                            'no_documento_cliente' => $cliente->no_documento_cliente,
+                            'id_tipo_vehiculo' => $request->id_tipo_vehiculo,
+                            'color_vehiculo' => $request->color_vehiculo,
+                            'marca_vehiculo' => $request->marca_vehiculo,
+                            'modelo_vehiculo' => $request->modelo_vehiculo,
+                            'estado_vehiculo' => 1,
+                        ]);
+                    } elseif ($vehiculo->no_documento_cliente != $cliente->no_documento_cliente) {
+                        throw new \Exception('PLACA_DE_OTRO_CLIENTE');
+                    }
+                } else {
+                    $vehiculo = $this->vehiculoOcasionalGenerico($request->id_tipo_vehiculo, $cliente->no_documento_cliente);
+                }
+
+                // 3) Servicio: si no se indicó uno, se usa el primero activo
+                //    configurado para ese tipo de vehículo (solo para dejar
+                //    constancia de qué tipo ocupó el cupo).
+                $idServicio = $request->id_servicio;
+
+                if (!$idServicio) {
+                    $servicio = Servicio::where('id_tipo_vehiculo', $request->id_tipo_vehiculo)
+                        ->where(function ($q) {
+                            $q->where('estado_servicio', 1)->orWhereNull('estado_servicio');
+                        })
+                        ->first();
+
+                    if (!$servicio) {
+                        throw new \Exception('SIN_SERVICIO_CONFIGURADO');
                     }
 
-                    $rolCliente = Rol::where('nombre_rol', 'Cliente')->first();
-
-                    $usuario = Usuario::create([
-                        'tipo_documento' => 'CC',
-                        'nombre_usuario' => $request->nombre_usuario,
-                        'apellido_usuario' => $request->apellido_usuario,
-                        'numero_celular' => $request->numero_celular,
-                        'correo_usuario' => 'walkin_' . $request->no_documento_cliente . '@parqueadero.local',
-                        'id_rol' => $rolCliente->id_rol,
-                        'contrasenia' => Hash::make(Str::random(16)),
-                        'estado_usuario' => 1,
-                    ]);
-
-                    $cliente = Cliente::create([
-                        'no_documento_cliente' => $request->no_documento_cliente,
-                        'id_usuario' => $usuario->id_usuario,
-                    ]);
+                    $idServicio = $servicio->id_servicio;
                 }
 
-                // 2) Vehículo: si la placa no existe, se registra a nombre de este cliente.
-                $vehiculo = Vehiculo::find($placa);
-
-                if (!$vehiculo) {
-                    $vehiculo = Vehiculo::create([
-                        'placa_vehiculo' => $placa,
-                        'no_documento_cliente' => $cliente->no_documento_cliente,
-                        'id_tipo_vehiculo' => $request->id_tipo_vehiculo,
-                        'color_vehiculo' => $request->color_vehiculo,
-                        'marca_vehiculo' => $request->marca_vehiculo,
-                        'modelo_vehiculo' => $request->modelo_vehiculo,
-                        'estado_vehiculo' => 1,
-                    ]);
-                } elseif ($vehiculo->no_documento_cliente != $cliente->no_documento_cliente) {
-                    throw new \Exception('PLACA_DE_OTRO_CLIENTE');
-                }
-
-                // 3) Cupo disponible para ese tipo de vehículo/fecha.
-                $disponibilidad = $this->verificarCupoDisponible($request->id_tipo_vehiculo, $request->fecha);
+                // 4) Cupo disponible para ese tipo de vehículo/fecha.
+                $disponibilidad = $this->verificarCupoDisponible($request->id_tipo_vehiculo, $fecha);
 
                 if (!$disponibilidad['disponible']) {
                     throw new \Exception('SIN_CUPO');
                 }
 
-                // 4) Reserva + comprobante de pago.
+                // 5) Reserva.
                 $reserva = Reserva::create([
                     'no_documento_cliente' => $cliente->no_documento_cliente,
                     'placa_vehiculo' => $vehiculo->placa_vehiculo,
                     'no_documento_administrador' => $request->no_documento_administrador,
-                    'fecha' => $request->fecha,
-                    'hora' => $request->hora,
-                    'id_servicio' => $request->id_servicio,
+                    'fecha' => $fecha,
+                    'hora' => $hora,
+                    'id_servicio' => $idServicio,
                     'id_tipo_vehiculo' => $request->id_tipo_vehiculo,
                     'estado_reserva' => self::ESTADO_EN_PROCESO,
                 ]);
 
-                ComprobantePago::create([
-                    'id_reserva' => $reserva->id_reserva,
-                    'id_metodo_pago' => $request->id_metodo_pago,
-                ]);
+                // 6) Comprobante de pago: solo si se indicó un método de pago.
+                if ($request->filled('id_metodo_pago')) {
+                    ComprobantePago::create([
+                        'id_reserva' => $reserva->id_reserva,
+                        'id_metodo_pago' => $request->id_metodo_pago,
+                    ]);
+                }
 
                 return $reserva;
             });
@@ -372,6 +426,7 @@ class ReservaController extends Controller
                 'SIN_CUPO' => response()->json(['message' => 'No hay cupos disponibles para ese tipo de vehículo en esa fecha'], 409),
                 'PLACA_DE_OTRO_CLIENTE' => response()->json(['message' => 'Esa placa ya está registrada a nombre de otro cliente'], 422),
                 'FALTAN_DATOS_CLIENTE' => response()->json(['message' => 'Ese documento no está registrado; completa nombre, apellido y celular para crearlo'], 422),
+                'SIN_SERVICIO_CONFIGURADO' => response()->json(['message' => 'No hay ningún servicio configurado para ese tipo de vehículo'], 422),
                 default => response()->json(['message' => 'Ocurrió un error al crear la reserva'], 500),
             };
         }
@@ -379,6 +434,65 @@ class ReservaController extends Controller
         $reserva->load('cliente.usuario', 'vehiculo', 'servicio', 'tipoVehiculo', 'comprobantePago.metodoPago');
 
         return response()->json($reserva, 201);
+    }
+
+    /**
+     * Devuelve (creándolo si hace falta) el cliente genérico "ocasional"
+     * que se reutiliza cuando crearControl() se usa solo para ocupar un
+     * cupo, sin capturar datos de un cliente real. NUEVO.
+     */
+    private function clienteOcasionalGenerico(): Cliente
+    {
+        $cliente = Cliente::find(self::DOCUMENTO_CLIENTE_GENERICO);
+
+        if ($cliente) {
+            return $cliente;
+        }
+
+        $rolCliente = Rol::where('nombre_rol', 'Cliente')->first();
+
+        $usuario = Usuario::create([
+            'tipo_documento' => 'CC',
+            'nombre_usuario' => 'Ocupación',
+            'apellido_usuario' => 'Control',
+            'numero_celular' => '0000000000',
+            'correo_usuario' => 'ocupacion.control@parqueadero.local',
+            'id_rol' => $rolCliente->id_rol,
+            'contrasenia' => Hash::make(Str::random(16)),
+            'estado_usuario' => 1,
+        ]);
+
+        return Cliente::create([
+            'no_documento_cliente' => self::DOCUMENTO_CLIENTE_GENERICO,
+            'id_usuario' => $usuario->id_usuario,
+        ]);
+    }
+
+    /**
+     * Devuelve (creándolo si hace falta) un vehículo genérico por tipo de
+     * vehículo, usado solo para ocupar un cupo sin pedir placa real. Varias
+     * reservas pueden compartir el mismo vehículo genérico sin problema,
+     * ya que aquí solo importa contar cupos por tipo/fecha. NUEVO.
+     */
+    private function vehiculoOcasionalGenerico(int $idTipoVehiculo, int $noDocumentoCliente): Vehiculo
+    {
+        $placaGenerica = 'OCUPA' . $idTipoVehiculo;
+
+        $vehiculo = Vehiculo::find($placaGenerica);
+
+        if ($vehiculo) {
+            return $vehiculo;
+        }
+
+        return Vehiculo::create([
+            'placa_vehiculo' => $placaGenerica,
+            'no_documento_cliente' => $noDocumentoCliente,
+            'id_tipo_vehiculo' => $idTipoVehiculo,
+            'color_vehiculo' => null,
+            'marca_vehiculo' => null,
+            'modelo_vehiculo' => null,
+            'estado_vehiculo' => 1,
+        ]);
     }
 
     /**

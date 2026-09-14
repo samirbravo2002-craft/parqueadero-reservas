@@ -196,7 +196,7 @@
           <div class="col-md-4">
             <div class="card shadow-sm h-100">
               <div class="card-body">
-                <div class="text-muted small mb-1">Cupos disponibles hoy</div>
+                <div class="text-muted small mb-1">Cupos ocupados hoy</div>
                 <div id="resumen-cupos" class="small">Cargando...</div>
               </div>
             </div>
@@ -416,93 +416,36 @@
     </div>
   </div>
 
-  <!-- ============ MODAL: Nueva reserva desde Control (NUEVO) ============ -->
+  <!-- ============ MODAL: Ocupar cupo desde Control (MODIFICADO: simplificado) ============ -->
+  <!-- Antes pedía documento, nombre, celular, placa, color, marca, modelo,
+       servicio, hora y método de pago. Ahora solo se necesita el tipo de
+       vehículo (y opcionalmente la fecha) para dejar constancia de que ese
+       cupo quedó ocupado; el backend (ReservaController@crearControl) se
+       encarga de rellenar cliente/vehículo/servicio genéricos. -->
   <div class="modal fade" id="modalReservaControl" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Nueva reserva (cliente en sitio)</h5>
+          <h5 class="modal-title">Ocupar un cupo</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <form id="form-reserva-control" novalidate>
 
-            <div class="row g-3 mb-3">
-              <div class="col-6">
-                <label class="form-label small">Documento del cliente</label>
-                <input type="number" class="form-control" id="rc_documento" required>
-                <div class="form-text">Si ya está registrado, se usa su cuenta; si no, se crea uno nuevo con los datos de abajo.</div>
-              </div>
-              <div class="col-6">
-                <label class="form-label small">Celular (si es cliente nuevo)</label>
-                <input type="tel" class="form-control" id="rc_celular" maxlength="10" inputmode="numeric"
-                       oninput="this.value = this.value.replace(/[^0-9]/g, '')">
-              </div>
-            </div>
-
-            <div class="row g-3 mb-3">
-              <div class="col-6">
-                <label class="form-label small">Nombre (si es cliente nuevo)</label>
-                <input type="text" class="form-control" id="rc_nombre" maxlength="20">
-              </div>
-              <div class="col-6">
-                <label class="form-label small">Apellido (si es cliente nuevo)</label>
-                <input type="text" class="form-control" id="rc_apellido" maxlength="20">
-              </div>
-            </div>
-
-            <hr>
-
-            <div class="row g-3 mb-3">
-              <div class="col-6">
-                <label class="form-label small">Placa</label>
-                <input type="text" class="form-control text-uppercase" id="rc_placa" maxlength="10" required>
-              </div>
-              <div class="col-6">
-                <label class="form-label small">Tipo de vehículo</label>
-                <select class="form-select" id="rc_tipo_vehiculo" required onchange="cargarServiciosControl(); consultarCuposControl();">
-                  <option value="" disabled selected>Cargando...</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="row g-3 mb-3">
-              <div class="col-4">
-                <label class="form-label small">Color (si es placa nueva)</label>
-                <input type="text" class="form-control" id="rc_color" maxlength="11">
-              </div>
-              <div class="col-4">
-                <label class="form-label small">Marca (si es placa nueva)</label>
-                <input type="text" class="form-control" id="rc_marca" maxlength="20">
-              </div>
-              <div class="col-4">
-                <label class="form-label small">Modelo (si es placa nueva)</label>
-                <input type="text" class="form-control" id="rc_modelo" maxlength="20">
-              </div>
-            </div>
+            <p class="text-muted small">
+              Marca un cupo como ocupado sin necesidad de registrar los datos completos del cliente ni del vehículo.
+            </p>
 
             <div class="mb-3">
-              <label class="form-label small">Servicio</label>
-              <select class="form-select" id="rc_servicio" required>
-                <option value="" disabled selected>-- Elige primero el tipo de vehículo --</option>
+              <label class="form-label small">Tipo de vehículo</label>
+              <select class="form-select" id="rc_tipo_vehiculo" required onchange="consultarCuposControl()">
+                <option value="" disabled selected>Cargando...</option>
               </select>
             </div>
 
-            <div class="row g-3 mb-3">
-              <div class="col-4">
-                <label class="form-label small">Fecha</label>
-                <input type="date" class="form-control" id="rc_fecha" required onchange="consultarCuposControl()">
-              </div>
-              <div class="col-4">
-                <label class="form-label small">Hora</label>
-                <input type="time" class="form-control" id="rc_hora" required>
-              </div>
-              <div class="col-4">
-                <label class="form-label small">Método de pago</label>
-                <select class="form-select" id="rc_metodo_pago" required>
-                  <option value="" disabled selected>Cargando...</option>
-                </select>
-              </div>
+            <div class="mb-3">
+              <label class="form-label small">Fecha</label>
+              <input type="date" class="form-control" id="rc_fecha" required onchange="consultarCuposControl()">
             </div>
 
             <div id="rc-cupos-info" class="small text-muted mb-3"></div>
@@ -512,7 +455,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button class="btn btn-primary" onclick="guardarReservaControl()">Crear reserva</button>
+          <button class="btn btn-primary" onclick="guardarReservaControl()">Ocupar cupo</button>
         </div>
       </div>
     </div>
@@ -987,7 +930,8 @@
           });
           const d = await resp.json();
           if (d.cupos_totales === null || d.cupos_totales === undefined) return null;
-          return `${t.nombre_tipo_vehiculo}: ${d.cupos_disponibles}/${d.cupos_totales}`;
+          // Se muestra "ocupados/totales" (ej. 2/30), no los disponibles.
+          return `${t.nombre_tipo_vehiculo}: ${d.cupos_ocupados}/${d.cupos_totales}`;
         }));
 
         cont.innerHTML = filas.filter(Boolean).join('<br>') || 'Sin límite configurado';
@@ -1058,8 +1002,7 @@
       document.getElementById('mensaje-reserva-control').className = 'alert d-none';
       document.getElementById('rc-cupos-info').textContent = '';
       document.getElementById('rc_fecha').value = new Date().toISOString().slice(0, 10);
-      cargarTiposControl();
-      cargarMetodosPagoControl();
+      cargarTiposControl().then(() => consultarCuposControl());
     }
 
     async function cargarTiposControl() {
@@ -1072,39 +1015,6 @@
         const option = document.createElement('option');
         option.value = t.id_tipo_vehiculo;
         option.textContent = t.nombre_tipo_vehiculo;
-        select.appendChild(option);
-      });
-    }
-
-    async function cargarServiciosControl() {
-      const idTipo = document.getElementById('rc_tipo_vehiculo').value;
-      const select = document.getElementById('rc_servicio');
-      select.innerHTML = '<option value="" disabled selected>Cargando...</option>';
-      if (!idTipo) return;
-
-      const resp = await fetch(`${API_BASE}/servicios`, { headers: { 'Accept': 'application/json' } });
-      const servicios = await resp.json();
-      const filtrados = servicios.filter(s => s.id_tipo_vehiculo == idTipo);
-
-      select.innerHTML = '<option value="" disabled selected>-- Selecciona un servicio --</option>';
-      filtrados.forEach(s => {
-        const option = document.createElement('option');
-        option.value = s.id_servicio;
-        option.textContent = `${s.nombre_servicio} - $${s.costo_servicio}`;
-        select.appendChild(option);
-      });
-    }
-
-    async function cargarMetodosPagoControl() {
-      const select = document.getElementById('rc_metodo_pago');
-      const resp = await fetch(`${API_BASE}/metodos-pago`, { headers: { 'Accept': 'application/json' } });
-      const metodos = await resp.json();
-
-      select.innerHTML = '<option value="" disabled selected>-- Selecciona un método --</option>';
-      metodos.forEach(m => {
-        const option = document.createElement('option');
-        option.value = m.id_metodo_pago;
-        option.textContent = m.nombre_metodo_pago;
         select.appendChild(option);
       });
     }
@@ -1137,20 +1047,13 @@
     async function guardarReservaControl() {
       const admin = getAdminGuardado();
 
+      // Solo se manda el tipo de vehículo y la fecha; el resto de campos
+      // (cliente, vehículo, servicio, hora, método de pago) los completa
+      // el backend con valores genéricos/por defecto, ya que aquí solo
+      // interesa dejar el cupo marcado como ocupado.
       const datos = {
-        no_documento_cliente: document.getElementById('rc_documento').value,
-        nombre_usuario: document.getElementById('rc_nombre').value.trim(),
-        apellido_usuario: document.getElementById('rc_apellido').value.trim(),
-        numero_celular: document.getElementById('rc_celular').value.trim(),
-        placa_vehiculo: document.getElementById('rc_placa').value.trim(),
         id_tipo_vehiculo: document.getElementById('rc_tipo_vehiculo').value,
-        color_vehiculo: document.getElementById('rc_color').value.trim(),
-        marca_vehiculo: document.getElementById('rc_marca').value.trim(),
-        modelo_vehiculo: document.getElementById('rc_modelo').value.trim(),
-        id_servicio: document.getElementById('rc_servicio').value,
         fecha: document.getElementById('rc_fecha').value,
-        hora: document.getElementById('rc_hora').value,
-        id_metodo_pago: document.getElementById('rc_metodo_pago').value,
         no_documento_administrador: admin ? admin.no_documento_administrador : null,
       };
 

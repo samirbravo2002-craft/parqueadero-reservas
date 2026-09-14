@@ -89,9 +89,12 @@
 
           @if ($vehiculoSeleccionado)
             {{-- Paso 2: completar la reserva con los servicios ya filtrados --}}
-            <form method="POST" action="{{ route('reservas.guardar') }}">
+            <form method="POST" action="{{ route('reservas.guardar') }}" id="form-reserva-cliente">
               @csrf
               <input type="hidden" name="placa_vehiculo" value="{{ $vehiculoSeleccionado->placa_vehiculo }}">
+              {{-- NUEVO: se guarda el tipo de vehículo para poder consultar
+                   los cupos disponibles por AJAX sin recargar la página. --}}
+              <input type="hidden" id="id_tipo_vehiculo_actual" value="{{ $vehiculoSeleccionado->id_tipo_vehiculo }}">
 
               <div class="mb-3">
                 <label for="id_servicio" class="form-label">
@@ -112,13 +115,17 @@
               <div class="row g-3 mb-3">
                 <div class="col-6">
                   <label for="fecha" class="form-label">Fecha</label>
-                  <input type="date" class="form-control" id="fecha" name="fecha" value="{{ old('fecha') }}" required>
+                  {{-- NUEVO: onchange consulta los cupos disponibles para esa fecha. --}}
+                  <input type="date" class="form-control" id="fecha" name="fecha" value="{{ old('fecha') }}" required onchange="consultarCuposReserva()">
                 </div>
                 <div class="col-6">
                   <label for="hora" class="form-label">Hora</label>
                   <input type="time" class="form-control" id="hora" name="hora" value="{{ old('hora') }}" required>
                 </div>
               </div>
+
+              {{-- NUEVO: indicador de cupos disponibles, igual al del panel de Control. --}}
+              <div id="cupos-info" class="small text-muted mb-3"></div>
 
               <div class="mb-3">
                 <label for="id_metodo_pago" class="form-label">Método de pago</label>
@@ -134,7 +141,8 @@
                 </select>
               </div>
 
-              <button type="submit" class="btn btn-primary w-100">Confirmar reserva</button>
+              {{-- NUEVO: id para poder deshabilitarlo si no hay cupos. --}}
+              <button type="submit" class="btn btn-primary w-100" id="btn-confirmar-reserva">Confirmar reserva</button>
             </form>
           @endif
 
@@ -143,6 +151,52 @@
 
     @endunless
   </div>
+
+  {{-- NUEVO: consulta en vivo de cupos disponibles (misma API que usa el
+       panel de Control: GET /api/reservas/cupos-disponibles). Si no hay
+       cupos para el tipo de vehículo/fecha elegidos, se avisa y se
+       bloquea el botón de confirmar; el backend (ReservaController@guardar)
+       igual lo vuelve a validar por seguridad. --}}
+  @if ($vehiculoSeleccionado)
+    <script>
+      const API_BASE = '/api';
+
+      async function consultarCuposReserva() {
+        const idTipoInput = document.getElementById('id_tipo_vehiculo_actual');
+        const fechaInput = document.getElementById('fecha');
+        const info = document.getElementById('cupos-info');
+        const btn = document.getElementById('btn-confirmar-reserva');
+
+        if (!idTipoInput || !fechaInput || !fechaInput.value) {
+          if (info) info.textContent = '';
+          return;
+        }
+
+        try {
+          const resp = await fetch(`${API_BASE}/reservas/cupos-disponibles?id_tipo_vehiculo=${idTipoInput.value}&fecha=${fechaInput.value}`, {
+            headers: { 'Accept': 'application/json' },
+          });
+          const d = await resp.json();
+
+          if (d.cupos_totales === null || d.cupos_totales === undefined) {
+            info.textContent = 'Este tipo de vehículo no tiene límite de cupos configurado.';
+            info.className = 'small text-muted mb-3';
+            if (btn) btn.disabled = false;
+            return;
+          }
+
+          info.textContent = `Cupos disponibles para esta fecha: ${d.cupos_disponibles} de ${d.cupos_totales}`;
+          info.className = d.cupos_disponibles > 0 ? 'small text-success mb-3' : 'small text-danger mb-3';
+
+          if (btn) btn.disabled = d.cupos_disponibles <= 0;
+        } catch (error) {
+          if (info) info.textContent = '';
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', consultarCuposReserva);
+    </script>
+  @endif
 
 </body>
 </html>
