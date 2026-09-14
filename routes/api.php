@@ -1,6 +1,6 @@
 <?php
 
-// Agregar en routes/api.php
+// routes/api.php
 
 use App\Http\Controllers\AdministradorController;
 use App\Http\Controllers\AuthController;
@@ -51,6 +51,25 @@ Route::apiResource('vehiculos', VehiculoController::class)->parameters([
     'vehiculos' => 'placa',
 ]);
 
-// Reserva: endpoint extra para consultar cupos disponibles antes de reservar
+// ===================== RESERVAS =====================
+// Estos endpoints extra del módulo Control deben ir ANTES del apiResource
+// de abajo, para que "en-proceso" / "resumen-hoy" / "control" no choquen
+// con la ruta reservas/{reserva} del apiResource.
+
+// Consultar cupos disponibles antes de reservar.
 Route::get('reservas/cupos-disponibles', [ReservaController::class, 'cuposDisponibles']);
+
+// CONTROL: reservas en proceso (pendientes de atender).
+Route::get('reservas/en-proceso', [ReservaController::class, 'enProceso']);
+
+// CONTROL: ganancias y cantidad de reservas del día de hoy.
+Route::get('reservas/resumen-hoy', [ReservaController::class, 'resumenHoy']);
+
+// CONTROL: marcar una reserva como finalizada (libera el cupo).
+Route::patch('reservas/{id}/finalizar', [ReservaController::class, 'finalizar']);
+
+// CONTROL: crear una reserva para un cliente que llega al parqueadero
+// (con o sin cuenta previa).
+Route::post('reservas/control', [ReservaController::class, 'crearControl']);
+
 Route::apiResource('reservas', ReservaController::class);

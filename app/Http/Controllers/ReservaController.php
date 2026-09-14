@@ -6,22 +6,30 @@ use App\Models\Cliente;
 use App\Models\ComprobantePago;
 use App\Models\MetodoPago;
 use App\Models\Reserva;
+use App\Models\Rol;
 use App\Models\Servicio;
 use App\Models\TipoVehiculo;
+use App\Models\Usuario;
 use App\Models\Vehiculo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Str;
 use Illuminate\Support\Facades\Validator;
 
 class ReservaController extends Controller
 {
+    // Estados posibles de una reserva (columna estado_reserva).
+    private const ESTADO_EN_PROCESO = 1;
+    private const ESTADO_FINALIZADA = 2;
+
     /**
      * Cupos máximos disponibles por día, según el tipo de vehículo.
      * La comparación se hace por el nombre del tipo de vehículo en minúsculas.
      */
     private const CUPOS_POR_TIPO = [
         'carro' => 30,
-        'moto' => 30,
+        'moto' => 25,
         'bicicleta' => 20,
     ];
 
@@ -90,6 +98,7 @@ class ReservaController extends Controller
             'hora' => $request->hora,
             'id_servicio' => $request->id_servicio,
             'id_tipo_vehiculo' => $idTipoVehiculo,
+            'estado_reserva' => self::ESTADO_EN_PROCESO, // NUEVO
         ]);
 
         $reserva->load('cliente.usuario', 'vehiculo', 'servicio', 'tipoVehiculo');
@@ -112,6 +121,7 @@ class ReservaController extends Controller
             'fecha' => 'sometimes|required|date',
             'hora' => 'sometimes|required|string|max:10',
             'id_servicio' => 'sometimes|required|exists:servicio,id_servicio',
+            'estado_reserva' => 'sometimes|required|in:1,2',
         ]);
 
         if ($validator->fails()) {
@@ -182,6 +192,193 @@ class ReservaController extends Controller
             'cupos_ocupados' => $disponibilidad['cupos_ocupados'],
             'cupos_disponibles' => $disponibilidad['cupos_totales'] - $disponibilidad['cupos_ocupados'],
         ], 200);
+    }
+
+    /**
+     * CONTROL — Lista solo las reservas que siguen en proceso (pendientes de atender).
+     * NUEVO.
+     */
+    public function enProceso()
+    {
+        $reservas = Reserva::with(
+            'cliente.usuario',
+            'vehiculo',
+            'servicio',
+            'tipoVehiculo',
+            'comprobantePago.metodoPago',
+            'administrador.usuario'
+        )
+            ->where('estado_reserva', self::ESTADO_EN_PROCESO)
+            ->orderBy('fecha')
+            ->orderBy('hora')
+            ->get();
+
+        return response()->json($reservas, 200);
+    }
+
+    /**
+     * CONTROL — Marca una reserva como finalizada (libera el cupo de ese día).
+     * NUEVO.
+     */
+    public function finalizar(int $id)
+    {
+        $reserva = Reserva::find($id);
+
+        if (!$reserva) {
+            return response()->json(['message' => 'Reserva no encontrada'], 404);
+        }
+
+        if ($reserva->estado_reserva == self::ESTADO_FINALIZADA) {
+            return response()->json(['message' => 'Esta reserva ya estaba finalizada'], 422);
+        }
+
+        $reserva->estado_reserva = self::ESTADO_FINALIZADA;
+        $reserva->save();
+
+        return response()->json([
+            'message' => 'Reserva finalizada correctamente',
+            'reserva' => $reserva,
+        ], 200);
+    }
+
+    /**
+     * CONTROL — Ganancias y cantidad de reservas del día de hoy.
+     * NUEVO.
+     */
+    public function resumenHoy()
+    {
+        $hoy = now()->toDateString();
+
+        $reservasHoy = Reserva::with('servicio')->where('fecha', $hoy)->get();
+
+        return response()->json([
+            'fecha' => $hoy,
+            'cantidad_reservas' => $reservasHoy->count(),
+            'reservas_en_proceso' => $reservasHoy->where('estado_reserva', self::ESTADO_EN_PROCESO)->count(),
+            'reservas_finalizadas' => $reservasHoy->where('estado_reserva', self::ESTADO_FINALIZADA)->count(),
+            'ganancias' => $reservasHoy->sum(fn ($r) => $r->servicio->costo_servicio ?? 0),
+        ], 200);
+    }
+
+    /**
+     * CONTROL — Crea una reserva desde el panel para un cliente que llega
+     * físicamente al parqueadero (con o sin cuenta previa). Si el documento
+     * no existe como cliente, se crea un usuario+cliente "ocasional" (sin
+     * login web real); si la placa no existe, se registra a nombre de ese cliente.
+     * NUEVO.
+     */
+    public function crearControl(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'no_documento_cliente' => 'required|integer|digits_between:6,10',
+            'nombre_usuario' => 'nullable|string|max:20',
+            'apellido_usuario' => 'nullable|string|max:20',
+            'numero_celular' => 'nullable|digits:10',
+
+            'placa_vehiculo' => 'required|string|max:10',
+            'id_tipo_vehiculo' => 'required|exists:tipo_vehiculo,id_tipo_vehiculo',
+            'color_vehiculo' => 'nullable|string|max:11',
+            'marca_vehiculo' => 'nullable|string|max:20',
+            'modelo_vehiculo' => 'nullable|string|max:20',
+
+            'id_servicio' => 'required|exists:servicio,id_servicio',
+            'fecha' => 'required|date',
+            'hora' => 'required|string|max:10',
+            'id_metodo_pago' => 'required|exists:metodo_pago,id_metodo_pago',
+            'no_documento_administrador' => 'required|exists:administrador,no_documento_administrador',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $placa = strtoupper(trim($request->placa_vehiculo));
+
+        try {
+            $reserva = DB::transaction(function () use ($request, $placa) {
+
+                // 1) Cliente: si no existe, se crea uno "ocasional".
+                $cliente = Cliente::find($request->no_documento_cliente);
+
+                if (!$cliente) {
+                    if (!$request->nombre_usuario || !$request->apellido_usuario || !$request->numero_celular) {
+                        throw new \Exception('FALTAN_DATOS_CLIENTE');
+                    }
+
+                    $rolCliente = Rol::where('nombre_rol', 'Cliente')->first();
+
+                    $usuario = Usuario::create([
+                        'tipo_documento' => 'CC',
+                        'nombre_usuario' => $request->nombre_usuario,
+                        'apellido_usuario' => $request->apellido_usuario,
+                        'numero_celular' => $request->numero_celular,
+                        'correo_usuario' => 'walkin_' . $request->no_documento_cliente . '@parqueadero.local',
+                        'id_rol' => $rolCliente->id_rol,
+                        'contrasenia' => Hash::make(Str::random(16)),
+                        'estado_usuario' => 1,
+                    ]);
+
+                    $cliente = Cliente::create([
+                        'no_documento_cliente' => $request->no_documento_cliente,
+                        'id_usuario' => $usuario->id_usuario,
+                    ]);
+                }
+
+                // 2) Vehículo: si la placa no existe, se registra a nombre de este cliente.
+                $vehiculo = Vehiculo::find($placa);
+
+                if (!$vehiculo) {
+                    $vehiculo = Vehiculo::create([
+                        'placa_vehiculo' => $placa,
+                        'no_documento_cliente' => $cliente->no_documento_cliente,
+                        'id_tipo_vehiculo' => $request->id_tipo_vehiculo,
+                        'color_vehiculo' => $request->color_vehiculo,
+                        'marca_vehiculo' => $request->marca_vehiculo,
+                        'modelo_vehiculo' => $request->modelo_vehiculo,
+                        'estado_vehiculo' => 1,
+                    ]);
+                } elseif ($vehiculo->no_documento_cliente != $cliente->no_documento_cliente) {
+                    throw new \Exception('PLACA_DE_OTRO_CLIENTE');
+                }
+
+                // 3) Cupo disponible para ese tipo de vehículo/fecha.
+                $disponibilidad = $this->verificarCupoDisponible($request->id_tipo_vehiculo, $request->fecha);
+
+                if (!$disponibilidad['disponible']) {
+                    throw new \Exception('SIN_CUPO');
+                }
+
+                // 4) Reserva + comprobante de pago.
+                $reserva = Reserva::create([
+                    'no_documento_cliente' => $cliente->no_documento_cliente,
+                    'placa_vehiculo' => $vehiculo->placa_vehiculo,
+                    'no_documento_administrador' => $request->no_documento_administrador,
+                    'fecha' => $request->fecha,
+                    'hora' => $request->hora,
+                    'id_servicio' => $request->id_servicio,
+                    'id_tipo_vehiculo' => $request->id_tipo_vehiculo,
+                    'estado_reserva' => self::ESTADO_EN_PROCESO,
+                ]);
+
+                ComprobantePago::create([
+                    'id_reserva' => $reserva->id_reserva,
+                    'id_metodo_pago' => $request->id_metodo_pago,
+                ]);
+
+                return $reserva;
+            });
+        } catch (\Exception $e) {
+            return match ($e->getMessage()) {
+                'SIN_CUPO' => response()->json(['message' => 'No hay cupos disponibles para ese tipo de vehículo en esa fecha'], 409),
+                'PLACA_DE_OTRO_CLIENTE' => response()->json(['message' => 'Esa placa ya está registrada a nombre de otro cliente'], 422),
+                'FALTAN_DATOS_CLIENTE' => response()->json(['message' => 'Ese documento no está registrado; completa nombre, apellido y celular para crearlo'], 422),
+                default => response()->json(['message' => 'Ocurrió un error al crear la reserva'], 500),
+            };
+        }
+
+        $reserva->load('cliente.usuario', 'vehiculo', 'servicio', 'tipoVehiculo', 'comprobantePago.metodoPago');
+
+        return response()->json($reserva, 201);
     }
 
     /**
@@ -277,6 +474,7 @@ class ReservaController extends Controller
                 'hora' => $request->hora,
                 'id_servicio' => $request->id_servicio,
                 'id_tipo_vehiculo' => $vehiculo->id_tipo_vehiculo,
+                'estado_reserva' => self::ESTADO_EN_PROCESO, // NUEVO
             ]);
 
             ComprobantePago::create([
@@ -307,6 +505,8 @@ class ReservaController extends Controller
 
     /**
      * Verifica si hay cupo disponible para un tipo de vehículo en una fecha.
+     * NOTA: solo cuenta reservas EN PROCESO — una reserva finalizada ya
+     * liberó su cupo para ese día.
      */
     private function verificarCupoDisponible(int $idTipoVehiculo, string $fecha, ?int $excluirReservaId = null)
     {
@@ -324,7 +524,8 @@ class ReservaController extends Controller
         }
 
         $query = Reserva::where('id_tipo_vehiculo', $idTipoVehiculo)
-            ->where('fecha', $fecha);
+            ->where('fecha', $fecha)
+            ->where('estado_reserva', self::ESTADO_EN_PROCESO); // NUEVO filtro
 
         if ($excluirReservaId) {
             $query->where('id_reserva', '!=', $excluirReservaId);

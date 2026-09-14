@@ -85,6 +85,12 @@
           <i class="fa-solid fa-screwdriver-wrench me-1"></i> Servicios
         </button>
       </li>
+      <!-- NUEVO: pestaña Reservas -->
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-reservas-btn" data-bs-toggle="tab" data-bs-target="#tab-reservas" type="button">
+          <i class="fa-solid fa-calendar-check me-1"></i> Reservas
+        </button>
+      </li>
     </ul>
 
     <div class="tab-content">
@@ -160,6 +166,65 @@
             </thead>
             <tbody id="tabla-servicios">
               <tr><td colspan="5" class="text-muted">Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ================= RESERVAS (NUEVO) ================= -->
+      <div class="tab-pane fade" id="tab-reservas" role="tabpanel">
+
+        <!-- Resumen del día -->
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+              <div class="card-body">
+                <div class="text-muted small">Ganancias de hoy</div>
+                <div class="fs-3 fw-bold text-success" id="resumen-ganancias">$0</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+              <div class="card-body">
+                <div class="text-muted small">Reservas hechas hoy</div>
+                <div class="fs-3 fw-bold" id="resumen-cantidad">0</div>
+                <div class="text-muted small" id="resumen-detalle"></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+              <div class="card-body">
+                <div class="text-muted small mb-1">Cupos disponibles hoy</div>
+                <div id="resumen-cupos" class="small">Cargando...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2 class="h5 mb-0">Reservas en proceso</h2>
+          <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalReservaControl" onclick="abrirModalReservaControl()">
+            <i class="fa-solid fa-plus me-1"></i> Nueva reserva
+          </button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-hover bg-white align-middle">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Cliente</th>
+                <th>Placa</th>
+                <th>Servicio</th>
+                <th>Fecha</th>
+                <th>Hora</th>
+                <th class="text-end">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-reservas-proceso">
+              <tr><td colspan="7" class="text-muted">Cargando...</td></tr>
             </tbody>
           </table>
         </div>
@@ -346,6 +411,108 @@
         <div class="modal-footer">
           <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
           <button class="btn btn-primary" onclick="guardarServicio()">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: Nueva reserva desde Control (NUEVO) ============ -->
+  <div class="modal fade" id="modalReservaControl" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva reserva (cliente en sitio)</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="form-reserva-control" novalidate>
+
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label small">Documento del cliente</label>
+                <input type="number" class="form-control" id="rc_documento" required>
+                <div class="form-text">Si ya está registrado, se usa su cuenta; si no, se crea uno nuevo con los datos de abajo.</div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small">Celular (si es cliente nuevo)</label>
+                <input type="tel" class="form-control" id="rc_celular" maxlength="10" inputmode="numeric"
+                       oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+              </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label small">Nombre (si es cliente nuevo)</label>
+                <input type="text" class="form-control" id="rc_nombre" maxlength="20">
+              </div>
+              <div class="col-6">
+                <label class="form-label small">Apellido (si es cliente nuevo)</label>
+                <input type="text" class="form-control" id="rc_apellido" maxlength="20">
+              </div>
+            </div>
+
+            <hr>
+
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label small">Placa</label>
+                <input type="text" class="form-control text-uppercase" id="rc_placa" maxlength="10" required>
+              </div>
+              <div class="col-6">
+                <label class="form-label small">Tipo de vehículo</label>
+                <select class="form-select" id="rc_tipo_vehiculo" required onchange="cargarServiciosControl(); consultarCuposControl();">
+                  <option value="" disabled selected>Cargando...</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-4">
+                <label class="form-label small">Color (si es placa nueva)</label>
+                <input type="text" class="form-control" id="rc_color" maxlength="11">
+              </div>
+              <div class="col-4">
+                <label class="form-label small">Marca (si es placa nueva)</label>
+                <input type="text" class="form-control" id="rc_marca" maxlength="20">
+              </div>
+              <div class="col-4">
+                <label class="form-label small">Modelo (si es placa nueva)</label>
+                <input type="text" class="form-control" id="rc_modelo" maxlength="20">
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small">Servicio</label>
+              <select class="form-select" id="rc_servicio" required>
+                <option value="" disabled selected>-- Elige primero el tipo de vehículo --</option>
+              </select>
+            </div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-4">
+                <label class="form-label small">Fecha</label>
+                <input type="date" class="form-control" id="rc_fecha" required onchange="consultarCuposControl()">
+              </div>
+              <div class="col-4">
+                <label class="form-label small">Hora</label>
+                <input type="time" class="form-control" id="rc_hora" required>
+              </div>
+              <div class="col-4">
+                <label class="form-label small">Método de pago</label>
+                <select class="form-select" id="rc_metodo_pago" required>
+                  <option value="" disabled selected>Cargando...</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="rc-cupos-info" class="small text-muted mb-3"></div>
+
+            <div id="mensaje-reserva-control" class="alert d-none"></div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" onclick="guardarReservaControl()">Crear reserva</button>
         </div>
       </div>
     </div>
@@ -788,6 +955,227 @@
       }
     }
 
+    /* ==================== RESERVAS (panel Control) — NUEVO ==================== */
+
+    async function cargarResumenHoy() {
+      try {
+        const resp = await fetch(`${API_BASE}/reservas/resumen-hoy`, { headers: { 'Accept': 'application/json' } });
+        const r = await resp.json();
+
+        document.getElementById('resumen-ganancias').textContent = `$${Number(r.ganancias).toLocaleString('es-CO')}`;
+        document.getElementById('resumen-cantidad').textContent = r.cantidad_reservas;
+        document.getElementById('resumen-detalle').textContent =
+          `${r.reservas_en_proceso} en proceso · ${r.reservas_finalizadas} finalizadas`;
+      } catch (error) {
+        document.getElementById('resumen-ganancias').textContent = '-';
+      }
+
+      cargarCuposHoy();
+    }
+
+    async function cargarCuposHoy() {
+      const cont = document.getElementById('resumen-cupos');
+      const hoy = new Date().toISOString().slice(0, 10);
+
+      try {
+        const respTipos = await fetch(`${API_BASE}/tipos-vehiculo`, { headers: { 'Accept': 'application/json' } });
+        const tipos = await respTipos.json();
+
+        const filas = await Promise.all(tipos.map(async t => {
+          const resp = await fetch(`${API_BASE}/reservas/cupos-disponibles?id_tipo_vehiculo=${t.id_tipo_vehiculo}&fecha=${hoy}`, {
+            headers: { 'Accept': 'application/json' },
+          });
+          const d = await resp.json();
+          if (d.cupos_totales === null || d.cupos_totales === undefined) return null;
+          return `${t.nombre_tipo_vehiculo}: ${d.cupos_disponibles}/${d.cupos_totales}`;
+        }));
+
+        cont.innerHTML = filas.filter(Boolean).join('<br>') || 'Sin límite configurado';
+      } catch (error) {
+        cont.textContent = 'No se pudieron cargar los cupos.';
+      }
+    }
+
+    async function cargarReservasEnProceso() {
+      const tbody = document.getElementById('tabla-reservas-proceso');
+      try {
+        const resp = await fetch(`${API_BASE}/reservas/en-proceso`, { headers: { 'Accept': 'application/json' } });
+        const reservas = await resp.json();
+
+        if (reservas.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="text-muted">No hay reservas en proceso.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        reservas.forEach(r => {
+          const u = (r.cliente && r.cliente.usuario) || {};
+          const fila = document.createElement('tr');
+          fila.innerHTML = `
+            <td>${r.id_reserva}</td>
+            <td>${u.nombre_usuario ?? ''} ${u.apellido_usuario ?? ''}</td>
+            <td>${r.placa_vehiculo}</td>
+            <td>${r.servicio ? r.servicio.nombre_servicio : '-'}</td>
+            <td>${r.fecha}</td>
+            <td>${r.hora}</td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-success" onclick="finalizarReserva(${r.id_reserva})">
+                <i class="fa-solid fa-check me-1"></i> Finalizar
+              </button>
+            </td>
+          `;
+          tbody.appendChild(fila);
+        });
+      } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-danger">No se pudieron cargar las reservas.</td></tr>';
+      }
+    }
+
+    async function finalizarReserva(id) {
+      if (!confirm('¿Marcar esta reserva como finalizada? Esto libera el cupo del día.')) return;
+
+      try {
+        const respuesta = await fetch(`${API_BASE}/reservas/${id}/finalizar`, {
+          method: 'PATCH',
+          headers: { 'Accept': 'application/json' },
+        });
+
+        if (!respuesta.ok) {
+          const resultado = await respuesta.json();
+          alert(resultado.message || 'No se pudo finalizar la reserva.');
+          return;
+        }
+
+        cargarReservasEnProceso();
+        cargarResumenHoy();
+      } catch (error) {
+        alert('No se pudo conectar con el servidor.');
+      }
+    }
+
+    function abrirModalReservaControl() {
+      document.getElementById('form-reserva-control').reset();
+      document.getElementById('mensaje-reserva-control').className = 'alert d-none';
+      document.getElementById('rc-cupos-info').textContent = '';
+      document.getElementById('rc_fecha').value = new Date().toISOString().slice(0, 10);
+      cargarTiposControl();
+      cargarMetodosPagoControl();
+    }
+
+    async function cargarTiposControl() {
+      const select = document.getElementById('rc_tipo_vehiculo');
+      const resp = await fetch(`${API_BASE}/tipos-vehiculo`, { headers: { 'Accept': 'application/json' } });
+      const tipos = await resp.json();
+
+      select.innerHTML = '<option value="" disabled selected>-- Selecciona un tipo --</option>';
+      tipos.forEach(t => {
+        const option = document.createElement('option');
+        option.value = t.id_tipo_vehiculo;
+        option.textContent = t.nombre_tipo_vehiculo;
+        select.appendChild(option);
+      });
+    }
+
+    async function cargarServiciosControl() {
+      const idTipo = document.getElementById('rc_tipo_vehiculo').value;
+      const select = document.getElementById('rc_servicio');
+      select.innerHTML = '<option value="" disabled selected>Cargando...</option>';
+      if (!idTipo) return;
+
+      const resp = await fetch(`${API_BASE}/servicios`, { headers: { 'Accept': 'application/json' } });
+      const servicios = await resp.json();
+      const filtrados = servicios.filter(s => s.id_tipo_vehiculo == idTipo);
+
+      select.innerHTML = '<option value="" disabled selected>-- Selecciona un servicio --</option>';
+      filtrados.forEach(s => {
+        const option = document.createElement('option');
+        option.value = s.id_servicio;
+        option.textContent = `${s.nombre_servicio} - $${s.costo_servicio}`;
+        select.appendChild(option);
+      });
+    }
+
+    async function cargarMetodosPagoControl() {
+      const select = document.getElementById('rc_metodo_pago');
+      const resp = await fetch(`${API_BASE}/metodos-pago`, { headers: { 'Accept': 'application/json' } });
+      const metodos = await resp.json();
+
+      select.innerHTML = '<option value="" disabled selected>-- Selecciona un método --</option>';
+      metodos.forEach(m => {
+        const option = document.createElement('option');
+        option.value = m.id_metodo_pago;
+        option.textContent = m.nombre_metodo_pago;
+        select.appendChild(option);
+      });
+    }
+
+    async function consultarCuposControl() {
+      const idTipo = document.getElementById('rc_tipo_vehiculo').value;
+      const fecha = document.getElementById('rc_fecha').value;
+      const info = document.getElementById('rc-cupos-info');
+
+      if (!idTipo || !fecha) return;
+
+      try {
+        const resp = await fetch(`${API_BASE}/reservas/cupos-disponibles?id_tipo_vehiculo=${idTipo}&fecha=${fecha}`, {
+          headers: { 'Accept': 'application/json' },
+        });
+        const d = await resp.json();
+
+        if (d.cupos_totales === null || d.cupos_totales === undefined) {
+          info.textContent = 'Este tipo de vehículo no tiene límite de cupos configurado.';
+          return;
+        }
+
+        info.textContent = `Cupos disponibles: ${d.cupos_disponibles} de ${d.cupos_totales}`;
+        info.className = d.cupos_disponibles > 0 ? 'small text-success mb-3' : 'small text-danger mb-3';
+      } catch (error) {
+        info.textContent = '';
+      }
+    }
+
+    async function guardarReservaControl() {
+      const admin = getAdminGuardado();
+
+      const datos = {
+        no_documento_cliente: document.getElementById('rc_documento').value,
+        nombre_usuario: document.getElementById('rc_nombre').value.trim(),
+        apellido_usuario: document.getElementById('rc_apellido').value.trim(),
+        numero_celular: document.getElementById('rc_celular').value.trim(),
+        placa_vehiculo: document.getElementById('rc_placa').value.trim(),
+        id_tipo_vehiculo: document.getElementById('rc_tipo_vehiculo').value,
+        color_vehiculo: document.getElementById('rc_color').value.trim(),
+        marca_vehiculo: document.getElementById('rc_marca').value.trim(),
+        modelo_vehiculo: document.getElementById('rc_modelo').value.trim(),
+        id_servicio: document.getElementById('rc_servicio').value,
+        fecha: document.getElementById('rc_fecha').value,
+        hora: document.getElementById('rc_hora').value,
+        id_metodo_pago: document.getElementById('rc_metodo_pago').value,
+        no_documento_administrador: admin ? admin.no_documento_administrador : null,
+      };
+
+      try {
+        const respuesta = await fetch(`${API_BASE}/reservas/control`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(datos),
+        });
+
+        const resultado = await respuesta.json();
+
+        if (!respuesta.ok) {
+          mostrarErrores('mensaje-reserva-control', resultado, 'Ocurrió un error al crear la reserva.');
+          return;
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('modalReservaControl')).hide();
+        cargarReservasEnProceso();
+        cargarResumenHoy();
+      } catch (error) {
+        mostrarErrores('mensaje-reserva-control', {}, 'No se pudo conectar con el servidor.');
+      }
+    }
+
     /* ==================== LOGIN DEL PANEL ==================== */
 
     // Sesión de administrador: se guarda en sessionStorage (se borra al
@@ -808,6 +1196,8 @@
       cargarClientes();
       cargarTipos();
       cargarServicios();
+      cargarResumenHoy();          // NUEVO
+      cargarReservasEnProceso();   // NUEVO
     }
 
     function mostrarPantallaLogin() {
