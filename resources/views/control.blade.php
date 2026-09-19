@@ -228,6 +228,36 @@
             </tbody>
           </table>
         </div>
+
+        {{-- NUEVO: historial de reservas ya finalizadas o canceladas. Estas
+             reservas nunca se eliminan (quedan como registro), así que se
+             muestran aquí, de solo lectura, por políticas de conservación
+             de registros del negocio. --}}
+        <div class="d-flex justify-content-between align-items-center mb-3 mt-5">
+          <h2 class="h5 mb-0">Historial (finalizadas y canceladas)</h2>
+          <button class="btn btn-outline-secondary btn-sm" onclick="cargarHistorialReservas()">
+            <i class="fa-solid fa-rotate me-1"></i> Actualizar
+          </button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-hover bg-white align-middle">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Cliente</th>
+                <th>Placa</th>
+                <th>Servicio</th>
+                <th>Fecha</th>
+                <th>Hora</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-reservas-historial">
+              <tr><td colspan="7" class="text-muted">Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>
@@ -997,6 +1027,44 @@
       }
     }
 
+    // NUEVO: historial de reservas ya procesadas (finalizadas/canceladas).
+    // Es de solo lectura: estas reservas ya no se pueden eliminar ni volver
+    // a poner "en proceso" desde aquí, solo consultar.
+    async function cargarHistorialReservas() {
+      const tbody = document.getElementById('tabla-reservas-historial');
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Cargando...</td></tr>';
+
+      try {
+        const resp = await fetch(`${API_BASE}/reservas/historial`, { headers: { 'Accept': 'application/json' } });
+        const reservas = await resp.json();
+
+        if (reservas.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Todavía no hay reservas finalizadas ni canceladas.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        reservas.forEach(r => {
+          const u = (r.cliente && r.cliente.usuario) || {};
+          const estadoTexto = r.estado_reserva == 2 ? 'Finalizada' : 'Cancelada';
+          const claseEstado = r.estado_reserva == 2 ? 'text-bg-success' : 'text-bg-secondary';
+          const fila = document.createElement('tr');
+          fila.innerHTML = `
+            <td>${r.id_reserva}</td>
+            <td>${u.nombre_usuario ?? ''} ${u.apellido_usuario ?? ''}</td>
+            <td>${r.placa_vehiculo}</td>
+            <td>${r.servicio ? r.servicio.nombre_servicio : '-'}</td>
+            <td>${r.fecha}</td>
+            <td>${r.hora}</td>
+            <td><span class="badge ${claseEstado}">${estadoTexto}</span></td>
+          `;
+          tbody.appendChild(fila);
+        });
+      } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-danger">No se pudo cargar el historial.</td></tr>';
+      }
+    }
+
     function abrirModalReservaControl() {
       document.getElementById('form-reserva-control').reset();
       document.getElementById('mensaje-reserva-control').className = 'alert d-none';
@@ -1101,6 +1169,7 @@
       cargarServicios();
       cargarResumenHoy();          // NUEVO
       cargarReservasEnProceso();   // NUEVO
+      cargarHistorialReservas();   // NUEVO
     }
 
     function mostrarPantallaLogin() {

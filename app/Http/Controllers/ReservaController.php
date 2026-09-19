@@ -22,6 +22,7 @@ class ReservaController extends Controller
     // Estados posibles de una reserva (columna estado_reserva).
     private const ESTADO_EN_PROCESO = 1;
     private const ESTADO_FINALIZADA = 2;
+    private const ESTADO_CANCELADA = 3; // NUEVO
 
     /**
      * Cupos máximos disponibles por día, según el tipo de vehículo.
@@ -128,7 +129,7 @@ class ReservaController extends Controller
             'fecha' => 'sometimes|required|date',
             'hora' => 'sometimes|required|string|max:10',
             'id_servicio' => 'sometimes|required|exists:servicio,id_servicio',
-            'estado_reserva' => 'sometimes|required|in:1,2',
+            'estado_reserva' => 'sometimes|required|in:1,2,3', // MODIFICADO: se agregó el estado 3 (cancelada)
         ]);
 
         if ($validator->fails()) {
@@ -165,12 +166,25 @@ class ReservaController extends Controller
         return response()->json($reserva, 200);
     }
 
+    /**
+     * MODIFICADO: una reserva ya finalizada o cancelada NUNCA se elimina
+     * físicamente. Debe quedar en la base de datos (visible en el
+     * historial) por políticas de conservación de registros del negocio.
+     * Solo se permite borrar una reserva que sigue "en proceso" (por
+     * ejemplo, un registro creado por error).
+     */
     public function destroy(int $id)
     {
         $reserva = Reserva::find($id);
 
         if (!$reserva) {
             return response()->json(['message' => 'Reserva no encontrada'], 404);
+        }
+
+        if ($reserva->estado_reserva != self::ESTADO_EN_PROCESO) {
+            return response()->json([
+                'message' => 'Esta reserva ya fue finalizada o cancelada y debe conservarse; no se puede eliminar. Consulta el historial.',
+            ], 422);
         }
 
         $reserva->delete();
@@ -224,6 +238,29 @@ class ReservaController extends Controller
     }
 
     /**
+     * CONTROL — Historial de reservas ya procesadas (finalizadas o
+     * canceladas). Estas nunca se eliminan, así que quedan disponibles
+     * aquí para consulta/auditoría según las políticas del negocio. NUEVO.
+     */
+    public function historial()
+    {
+        $reservas = Reserva::with(
+            'cliente.usuario',
+            'vehiculo',
+            'servicio',
+            'tipoVehiculo',
+            'comprobantePago.metodoPago',
+            'administrador.usuario'
+        )
+            ->whereIn('estado_reserva', [self::ESTADO_FINALIZADA, self::ESTADO_CANCELADA])
+            ->orderByDesc('fecha')
+            ->orderByDesc('hora')
+            ->get();
+
+        return response()->json($reservas, 200);
+    }
+
+    /**
      * CONTROL — Marca una reserva como finalizada (libera el cupo de ese día).
      * NUEVO.
      */
@@ -246,6 +283,70 @@ class ReservaController extends Controller
             'message' => 'Reserva finalizada correctamente',
             'reserva' => $reserva,
         ], 200);
+    }
+
+    /**
+     * Cancela una reserva (API). Libera el cupo del día, igual que
+     * finalizar(), pero queda marcada con un estado distinto para que se
+     * sepa que el cliente la canceló y no que fue atendida. Solo se puede
+     * cancelar una reserva que sigue en proceso. NUEVO.
+     */
+    public function cancelar(int $id)
+    {
+        $reserva = Reserva::find($id);
+
+        if (!$reserva) {
+            return response()->json(['message' => 'Reserva no encontrada'], 404);
+        }
+
+        if ($reserva->estado_reserva == self::ESTADO_FINALIZADA) {
+            return response()->json(['message' => 'Esta reserva ya fue atendida (finalizada) y no se puede cancelar'], 422);
+        }
+
+        if ($reserva->estado_reserva == self::ESTADO_CANCELADA) {
+            return response()->json(['message' => 'Esta reserva ya estaba cancelada'], 422);
+        }
+
+        $reserva->estado_reserva = self::ESTADO_CANCELADA;
+        $reserva->save();
+
+        return response()->json([
+            'message' => 'Reserva cancelada correctamente',
+            'reserva' => $reserva,
+        ], 200);
+    }
+
+    /**
+     * SITIO WEB — Cancela una reserva desde "Mi cuenta" (formulario normal,
+     * sin JS/AJAX). Solo el dueño de la reserva (según la sesión) puede
+     * cancelarla, y solo mientras siga en proceso. NUEVO.
+     */
+    public function cancelarWeb(Request $request, int $id)
+    {
+        $clienteSesion = session('cliente');
+
+        if (!$clienteSesion) {
+            return redirect()->route('inicio')->with('status', 'Necesitas iniciar sesión para cancelar una reserva.');
+        }
+
+        $reserva = Reserva::find($id);
+
+        if (!$reserva || $reserva->no_documento_cliente != $clienteSesion['no_documento_cliente']) {
+            return redirect()->route('mi-cuenta')->with('status', 'Esa reserva no existe o no te pertenece.');
+        }
+
+        if ($reserva->estado_reserva == self::ESTADO_FINALIZADA) {
+            return redirect()->route('mi-cuenta')->with('status', 'Esa reserva ya fue atendida y no se puede cancelar.');
+        }
+
+        if ($reserva->estado_reserva == self::ESTADO_CANCELADA) {
+            return redirect()->route('mi-cuenta')->with('status', 'Esa reserva ya estaba cancelada.');
+        }
+
+        $reserva->estado_reserva = self::ESTADO_CANCELADA;
+        $reserva->save();
+
+        return redirect()->route('mi-cuenta')->with('status', 'Tu reserva fue cancelada correctamente.');
     }
 
     /**

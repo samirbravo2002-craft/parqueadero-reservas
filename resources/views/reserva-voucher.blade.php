@@ -14,6 +14,34 @@
 </head>
 <body class="bg-light">
 
+  {{-- NUEVO: faltaba la barra de navegación en esta vista (antes se quedaba
+       "flotando" sin ella). Se oculta al imprimir, igual que el resto de
+       elementos marcados con .no-imprimir. --}}
+  <nav class="navbar navbar-expand bg-white border-bottom px-4 py-2 no-imprimir">
+    <div class="container-fluid p-0">
+      <a class="navbar-brand fw-bold text-primary d-flex align-items-center gap-2" href="{{ route('inicio') }}">
+        <i class="fa-solid fa-car fs-4"></i>
+        <span>PARQUEADERO RESERVAS</span>
+      </a>
+      <div class="navbar-nav gap-3">
+        <a class="nav-link text-secondary fw-semibold d-flex align-items-center gap-1" href="{{ route('inicio') }}">
+          <i class="fa-solid fa-house"></i> Inicio
+        </a>
+        <a class="nav-link text-secondary fw-semibold d-flex align-items-center gap-1" href="{{ route('reservas.vista') }}">
+          <i class="fa-solid fa-calendar-days"></i> Reservar
+        </a>
+        @if(session('cliente'))
+          <a class="nav-link text-secondary fw-semibold d-flex align-items-center gap-1" href="{{ route('mi-cuenta') }}">
+            <i class="fa-solid fa-user"></i> Mi cuenta
+          </a>
+        @endif
+        <a class="nav-link text-secondary fw-semibold d-flex align-items-center gap-1" href="{{ route('control') }}">
+          <i class="fa-solid fa-gear"></i> Control
+        </a>
+      </div>
+    </div>
+  </nav>
+
   <div class="container d-flex justify-content-center align-items-center py-5" style="min-height: 100vh;">
     <div class="card shadow-sm" style="max-width: 480px; width: 100%;">
       <div class="card-body p-4">
@@ -60,6 +88,18 @@
             <dt class="col-6">Método de pago</dt>
             <dd class="col-6 text-end">{{ $reserva->comprobantePago->metodoPago->nombre_metodo_pago ?? '-' }}</dd>
           </dl>
+        </div>
+
+        {{-- NUEVO: código QR ilustrativo. Solo es para mostrar cómo se
+             vería en el voucher; no está enlazado a ninguna verificación
+             real. --}}
+        <div class="text-center mb-3">
+          <img
+            src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=RESERVA-{{ $reserva->id_reserva }}"
+            alt="Código QR del voucher"
+            width="160" height="160"
+            class="img-fluid border rounded-3 p-2 bg-white">
+          <div class="text-muted small mt-1">Muestra este código al llegar</div>
         </div>
 
         <div class="d-grid gap-2 no-imprimir">

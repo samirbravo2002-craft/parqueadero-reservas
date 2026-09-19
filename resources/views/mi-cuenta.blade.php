@@ -34,9 +34,7 @@
   </nav>
 
   @unless($clienteSesion)
-    {{-- ANTES: esta comprobación se hacía en JS mirando localStorage,
-         que nunca coincidía con la sesión real del servidor. AHORA:
-         $clienteSesion viene directo de session('cliente') vía el controlador. --}}
+    
     <div class="container py-5">
       <div class="alert alert-warning text-center">
         Aún no te has registrado.
@@ -74,10 +72,7 @@
                 </div>
               @endif
 
-              {{-- Formulario normal (sin JS/AJAX): hace POST directo a
-                   vehiculos.guardar (VehiculoController@guardarWeb), que
-                   toma el no_documento_cliente de la sesión, nunca del
-                   formulario. --}}
+              {{-- Formulario normal guardar vehiculo --}}
               <form method="POST" action="{{ route('vehiculos.guardar') }}">
                 @csrf
 
@@ -149,6 +144,59 @@
           </div>
         </div>
 
+      </div>
+
+      {{-- NUEVO: sección "Mis reservas". Muestra el historial completo del
+           cliente (en proceso, finalizadas y canceladas) y permite
+           cancelar solo las que siguen en proceso. --}}
+      <div class="row g-4 mt-1">
+        <div class="col-12">
+          <div class="card shadow-sm">
+            <div class="card-body p-4">
+              <h3 class="h5 mb-3">Mis reservas</h3>
+
+              @forelse ($reservas as $r)
+                <div class="border rounded-3 p-3 mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                  <div>
+                    <strong>{{ $r->vehiculo->placa_vehiculo ?? '-' }}</strong>
+                    · {{ $r->servicio->nombre_servicio ?? 'Servicio' }}
+                    <div class="text-muted small">
+                      {{ $r->fecha }} {{ $r->hora }}
+                      · Pago: {{ $r->comprobantePago->metodoPago->nombre_metodo_pago ?? 'Sin definir' }}
+                    </div>
+                  </div>
+                  <div class="d-flex align-items-center gap-2">
+                    @php
+                      $claseEstado = match((int) $r->estado_reserva) {
+                          2 => 'text-bg-success',
+                          3 => 'text-bg-secondary',
+                          default => 'text-bg-warning',
+                      };
+                    @endphp
+                    <span class="badge {{ $claseEstado }}">{{ $r->estado_texto }}</span>
+
+                    <a href="{{ route('reservas.voucher', $r->id_reserva) }}" class="btn btn-sm btn-outline-secondary">
+                      Ver voucher
+                    </a>
+
+                    @if ($r->estado_reserva == 1)
+                      <form method="POST" action="{{ route('reservas.cancelar', $r->id_reserva) }}"
+                            onsubmit="return confirm('¿Cancelar esta reserva?');">
+                        @csrf
+                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                          <i class="fa-solid fa-xmark me-1"></i> Cancelar
+                        </button>
+                      </form>
+                    @endif
+                  </div>
+                </div>
+              @empty
+                <p class="text-muted mb-0">Todavía no has hecho ninguna reserva.</p>
+              @endforelse
+
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   @endunless

@@ -19,6 +19,9 @@ Route::get('/reservas', [ReservaController::class, 'crear'])->name('reservas.vis
 Route::post('/reservas', [ReservaController::class, 'guardar'])->name('reservas.guardar');
 Route::get('/reservas/{id}/voucher', [ReservaController::class, 'voucher'])->name('reservas.voucher');
 
+// NUEVO: cancelar una reserva propia desde "Mi cuenta" (formulario normal, sin JS/AJAX).
+Route::post('/reservas/{id}/cancelar', [ReservaController::class, 'cancelarWeb'])->name('reservas.cancelar');
+
 // ANTES: esta ruta devolvía view('mi-cuenta') directo, sin pasar por el
 // controlador, así que la vista no recibía $clienteSesion/$vehiculos/$tiposVehiculo
 // y tenía que reconstruir todo por JS + localStorage (lo que rompía el

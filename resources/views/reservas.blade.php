@@ -63,8 +63,7 @@
             </div>
           @endif
 
-          {{-- Paso 1: elegir el vehículo. Recarga la página vía GET para
-               que el controlador filtre los servicios por su tipo. --}}
+          {{-- esta nos sirve para elegir el vehiculo. --}}
           <form method="GET" action="{{ route('reservas.vista') }}" class="mb-4">
             <label for="placa_vehiculo" class="form-label">Vehículo</label>
             <div class="input-group">
@@ -92,8 +91,7 @@
             <form method="POST" action="{{ route('reservas.guardar') }}" id="form-reserva-cliente">
               @csrf
               <input type="hidden" name="placa_vehiculo" value="{{ $vehiculoSeleccionado->placa_vehiculo }}">
-              {{-- NUEVO: se guarda el tipo de vehículo para poder consultar
-                   los cupos disponibles por AJAX sin recargar la página. --}}
+              {{-- se guarda el tipo de vehículo y cupos. --}}
               <input type="hidden" id="id_tipo_vehiculo_actual" value="{{ $vehiculoSeleccionado->id_tipo_vehiculo }}">
 
               <div class="mb-3">
@@ -115,7 +113,7 @@
               <div class="row g-3 mb-3">
                 <div class="col-6">
                   <label for="fecha" class="form-label">Fecha</label>
-                  {{-- NUEVO: onchange consulta los cupos disponibles para esa fecha. --}}
+                  {{-- consulta los cupos disponibles para esa fecha. --}}
                   <input type="date" class="form-control" id="fecha" name="fecha" value="{{ old('fecha') }}" required onchange="consultarCuposReserva()">
                 </div>
                 <div class="col-6">
@@ -124,15 +122,15 @@
                 </div>
               </div>
 
-              {{-- NUEVO: indicador de cupos disponibles, igual al del panel de Control. --}}
+          
               <div id="cupos-info" class="small text-muted mb-3"></div>
 
               <div class="mb-3">
                 <label for="id_metodo_pago" class="form-label">Método de pago</label>
-                <select class="form-select" id="id_metodo_pago" name="id_metodo_pago" required>
+                <select class="form-select" id="id_metodo_pago" name="id_metodo_pago" required onchange="mostrarFormularioPago()">
                   <option value="" disabled selected>-- Selecciona cómo vas a pagar --</option>
                   @forelse ($metodosPago as $m)
-                    <option value="{{ $m->id_metodo_pago }}" {{ old('id_metodo_pago') == $m->id_metodo_pago ? 'selected' : '' }}>
+                    <option value="{{ $m->id_metodo_pago }}" data-nombre="{{ strtolower($m->nombre_metodo_pago) }}" {{ old('id_metodo_pago') == $m->id_metodo_pago ? 'selected' : '' }}>
                       {{ $m->nombre_metodo_pago }}
                     </option>
                   @empty
@@ -141,7 +139,65 @@
                 </select>
               </div>
 
-              {{-- NUEVO: id para poder deshabilitarlo si no hay cupos. --}}
+              {{-- NUEVO: formularios ilustrativos de pago. Ninguno de estos
+                   campos se procesa ni se guarda de verdad (no están en las
+                   reglas de validación del backend); es solo para mostrar
+                   cómo se vería el paso de pago. Si el método es "Efectivo"
+                   no se muestra nada, porque ese pago se hace en el lugar. --}}
+              <div class="alert alert-secondary small py-2 mb-3 d-none" id="aviso-pago-ilustrativo">
+                <i class="fa-solid fa-circle-info me-1"></i> Estos datos son solo de ejemplo, aún no se procesan pagos reales.
+              </div>
+
+              <div class="border rounded-3 p-3 mb-3 d-none" id="pago-tarjeta">
+                <h4 class="h6 mb-3"><i class="fa-solid fa-credit-card me-1"></i> Datos de la tarjeta</h4>
+                <div class="mb-3">
+                  <label class="form-label small">Número de la tarjeta</label>
+                  <input type="text" class="form-control" placeholder="1234 5678 9012 3456" maxlength="19" autocomplete="off">
+                </div>
+                <div class="mb-3">
+                  <label class="form-label small">Nombre del titular</label>
+                  <input type="text" class="form-control" placeholder="Como aparece en la tarjeta" autocomplete="off">
+                </div>
+                <div class="row g-3">
+                  <div class="col-6">
+                    <label class="form-label small">Fecha de vencimiento</label>
+                    <input type="text" class="form-control" placeholder="MM/AA" maxlength="5" autocomplete="off">
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label small">CVV</label>
+                    <input type="text" class="form-control" placeholder="123" maxlength="3" inputmode="numeric" autocomplete="off">
+                  </div>
+                </div>
+              </div>
+
+              <div class="border rounded-3 p-3 mb-3 d-none" id="pago-nequi">
+                <h4 class="h6 mb-3"><i class="fa-solid fa-mobile-screen me-1"></i> Pago con Nequi</h4>
+                <div class="mb-3">
+                  <label class="form-label small">Número de celular Nequi</label>
+                  <input type="tel" class="form-control" placeholder="300 123 4567" maxlength="10" inputmode="numeric" autocomplete="off">
+                </div>
+                <div class="mb-3">
+                  <label class="form-label small">Clave Nequi</label>
+                  <input type="password" class="form-control" placeholder="••••" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="border rounded-3 p-3 mb-3 d-none" id="pago-transferencia">
+                <h4 class="h6 mb-3"><i class="fa-solid fa-building-columns me-1"></i> Transferencia bancaria</h4>
+                <div class="mb-3">
+                  <label class="form-label small">Banco</label>
+                  <input type="text" class="form-control" placeholder="Nombre del banco" autocomplete="off">
+                </div>
+                <div class="mb-3">
+                  <label class="form-label small">Número de cuenta</label>
+                  <input type="text" class="form-control" placeholder="Número de cuenta" autocomplete="off">
+                </div>
+                <div class="mb-3">
+                  <label class="form-label small">Clave / clave dinámica</label>
+                  <input type="password" class="form-control" placeholder="••••" autocomplete="off">
+                </div>
+              </div>
+
               <button type="submit" class="btn btn-primary w-100" id="btn-confirmar-reserva">Confirmar reserva</button>
             </form>
           @endif
@@ -152,11 +208,7 @@
     @endunless
   </div>
 
-  {{-- NUEVO: consulta en vivo de cupos disponibles (misma API que usa el
-       panel de Control: GET /api/reservas/cupos-disponibles). Si no hay
-       cupos para el tipo de vehículo/fecha elegidos, se avisa y se
-       bloquea el botón de confirmar; el backend (ReservaController@guardar)
-       igual lo vuelve a validar por seguridad. --}}
+  {{-- consulta en vivo de cupos disponibles  --}}
   @if ($vehiculoSeleccionado)
     <script>
       const API_BASE = '/api';
@@ -195,6 +247,39 @@
       }
 
       document.addEventListener('DOMContentLoaded', consultarCuposReserva);
+
+      // NUEVO: muestra el formulario ilustrativo según el método de pago
+      // elegido. Si es "Efectivo" (o no hay selección) no muestra nada,
+      // porque ese pago se hace en el lugar.
+      function mostrarFormularioPago() {
+        const select = document.getElementById('id_metodo_pago');
+        const opcion = select.options[select.selectedIndex];
+        const nombre = opcion ? (opcion.dataset.nombre || '') : '';
+
+        const bloques = {
+          tarjeta: document.getElementById('pago-tarjeta'),
+          nequi: document.getElementById('pago-nequi'),
+          transferencia: document.getElementById('pago-transferencia'),
+        };
+        const aviso = document.getElementById('aviso-pago-ilustrativo');
+
+        Object.values(bloques).forEach(b => b.classList.add('d-none'));
+        aviso.classList.add('d-none');
+
+        if (nombre.includes('tarjeta')) {
+          bloques.tarjeta.classList.remove('d-none');
+          aviso.classList.remove('d-none');
+        } else if (nombre.includes('nequi')) {
+          bloques.nequi.classList.remove('d-none');
+          aviso.classList.remove('d-none');
+        } else if (nombre.includes('transferencia')) {
+          bloques.transferencia.classList.remove('d-none');
+          aviso.classList.remove('d-none');
+        }
+        // "Efectivo" (o cualquier otro método no reconocido) no muestra nada.
+      }
+
+      document.addEventListener('DOMContentLoaded', mostrarFormularioPago);
     </script>
   @endif
 

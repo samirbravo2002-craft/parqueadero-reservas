@@ -68,6 +68,13 @@ Route::get('reservas/resumen-hoy', [ReservaController::class, 'resumenHoy']);
 // CONTROL: marcar una reserva como finalizada (libera el cupo).
 Route::patch('reservas/{id}/finalizar', [ReservaController::class, 'finalizar']);
 
+// Cancelar una reserva (libera el cupo, pero se conserva para historial). NUEVO.
+Route::patch('reservas/{id}/cancelar', [ReservaController::class, 'cancelar']);
+
+// CONTROL: historial de reservas ya procesadas (finalizadas o canceladas),
+// para consulta por políticas de conservación de registros. NUEVO.
+Route::get('reservas/historial', [ReservaController::class, 'historial']);
+
 // CONTROL: crear una reserva para un cliente que llega al parqueadero
 // (con o sin cuenta previa).
 Route::post('reservas/control', [ReservaController::class, 'crearControl']);
